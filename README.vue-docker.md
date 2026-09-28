@@ -5,7 +5,7 @@
 ## 架構
 
 ```
-瀏覽器 → Vue/Nginx（localhost:8513）→ FastAPI（容器內）→ 獨立 SQLite volume
+瀏覽器 → Vue/Nginx（localhost:8514）→ FastAPI（容器內）→ 獨立 SQLite volume
 ```
 
 - `web/`：Vue 3 風險總覽，登入後顯示 KPI、據點、最新事件與高風險供應商。
@@ -20,7 +20,7 @@
 docker compose up --build -d
 ```
 
-開啟 `http://127.0.0.1:8513/`，使用 `viewer / viewer` 登入。此帳密只在新建的作業版示範資料庫啟用。查看容器：`docker compose ps`；停止：`docker compose down`。停止不會刪除 volume。若要重設作業資料庫，需另外手動刪除專用 volume；不要對原專案資料庫操作。未設定 `API_SESSION_SECRET` 時，API 會在啟動時產生隨機金鑰，重啟後需要重新登入；若要讓登入跨重啟維持有效，可在 Compose 啟動前設定自己的長隨機字串。
+開啟 `http://127.0.0.1:8514/`，使用 `viewer / viewer` 登入。`8513` 保留給本機 Vite 預覽，與 Docker 版分開。此帳密只在新建的作業版示範資料庫啟用。查看容器：`docker compose ps`；停止：`docker compose down`。停止不會刪除 volume。若要重設作業資料庫，需另外手動刪除專用 volume；不要對原專案資料庫操作。未設定 `API_SESSION_SECRET` 時，API 會在啟動時產生隨機金鑰，重啟後需要重新登入；若要讓登入跨重啟維持有效，可在 Compose 啟動前設定自己的長隨機字串。
 
 目前只展示供應鏈風險的唯讀總覽。AI 分析、What-if 寫入、採購核准等仍由既有 Streamlit 版處理，尚未搬到 Vue。
 

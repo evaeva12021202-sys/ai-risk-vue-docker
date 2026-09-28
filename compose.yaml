@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: web/Dockerfile
     ports:
-      - "127.0.0.1:8513:80"
+      - "127.0.0.1:8514:80"
     depends_on:
       api:
         condition: service_healthy
