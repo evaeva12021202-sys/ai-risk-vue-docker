@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 const session = ref(null);
 const overview = ref(null);
@@ -8,6 +8,11 @@ const password = ref("");
 const busy = ref(false);
 const error = ref("");
 const activeRegion = ref(null);
+const regionDetails = ref(null);
+const activeSupplier = ref(null);
+const detailsBusy = ref(false);
+const detailsError = ref("");
+let detailsRequestId = 0;
 
 const hotspots = computed(() => overview.value?.regions ?? []);
 const highestRisk = computed(
@@ -18,6 +23,32 @@ const selectedRegion = computed(
     hotspots.value.find((item) => item.region_key === activeRegion.value) ??
     hotspots.value[0],
 );
+const selectedOrders = computed(() =>
+  (regionDetails.value?.open_purchase_orders ?? []).filter(
+    (order) => !activeSupplier.value || order.supplier_id === activeSupplier.value,
+  ),
+);
+
+async function loadRegionDetails(regionKey) {
+  const requestId = ++detailsRequestId;
+  regionDetails.value = null;
+  activeSupplier.value = null;
+  detailsError.value = "";
+  if (!regionKey) return;
+  detailsBusy.value = true;
+  try {
+    const result = await request(
+      `/api/regions/${encodeURIComponent(regionKey)}/details`,
+    );
+    if (requestId === detailsRequestId) regionDetails.value = result;
+  } catch (reason) {
+    if (requestId === detailsRequestId) detailsError.value = reason.message;
+  } finally {
+    if (requestId === detailsRequestId) detailsBusy.value = false;
+  }
+}
+
+watch(activeRegion, loadRegionDetails);
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -37,6 +68,7 @@ async function refresh() {
   error.value = "";
   try {
     overview.value = await request("/api/overview");
+    const previousRegion = activeRegion.value;
     if (
       !activeRegion.value ||
       !overview.value.regions.some(
@@ -44,6 +76,9 @@ async function refresh() {
       )
     ) {
       activeRegion.value = overview.value.regions[0]?.region_key ?? null;
+    }
+    if (activeRegion.value === previousRegion) {
+      await loadRegionDetails(activeRegion.value);
     }
   } catch (reason) {
     error.value = reason.message;
@@ -77,6 +112,9 @@ async function logout() {
   await request("/api/session", { method: "DELETE" }).catch(() => {});
   session.value = null;
   overview.value = null;
+  activeRegion.value = null;
+  regionDetails.value = null;
+  detailsRequestId++;
   password.value = "";
   error.value = "";
 }
@@ -305,6 +343,7 @@ onMounted(async () => {
                   <span>最近更新</span
                   ><strong>{{ formatDate(selectedRegion.updated_at) }}</strong>
                 </div>
+                <p class="region-hint">下方事件、供應商與採購單依此據點篩選。</p>
               </template>
               <p v-else class="empty-text">
                 尚無據點資料。請確認獨立資料庫已有供應商所在地。
@@ -320,9 +359,11 @@ onMounted(async () => {
                   <h2>最新事件</h2>
                 </div>
               </div>
-              <div v-if="overview.events.length" class="event-list">
+              <p v-if="detailsBusy" class="empty-text">正在查詢此據點資料…</p>
+              <p v-else-if="detailsError" class="alert" role="alert">{{ detailsError }}</p>
+              <div v-else-if="regionDetails?.events.length" class="event-list">
                 <div
-                  v-for="event in overview.events"
+                  v-for="event in regionDetails.events"
                   :key="event.id"
                   class="event-row"
                 >
@@ -338,26 +379,30 @@ onMounted(async () => {
                   <b>+{{ event.impact_days }} 天</b>
                 </div>
               </div>
-              <p v-else class="empty-text">目前沒有已登錄的風險事件。</p>
+              <p v-else class="empty-text">此據點目前沒有已登錄的風險事件。</p>
             </article>
             <article class="surface list-surface">
               <div class="section-title">
                 <div>
                   <div class="eyebrow dark">SUPPLIER WATCH</div>
-                  <h2>高風險供應商</h2>
+                  <h2>此據點供應商</h2>
                   <small class="risk-explainer"
-                    >依供應商主檔標記；與地區風險分數分開計算。</small
+                    >依供應商主檔所在地篩選；點選供應商可查看未結案採購單。</small
                   >
                 </div>
               </div>
               <div
-                v-if="overview.high_risk_suppliers.length"
+                v-if="regionDetails?.suppliers.length"
                 class="supplier-list"
               >
-                <div
-                  v-for="supplier in overview.high_risk_suppliers"
+                <button
+                  v-for="supplier in regionDetails.suppliers"
                   :key="supplier.supplier_id"
-                  class="supplier-row"
+                  type="button"
+                  class="supplier-row supplier-button"
+                  :class="{ selected: activeSupplier === supplier.supplier_id }"
+                  :aria-pressed="activeSupplier === supplier.supplier_id"
+                  @click="activeSupplier = activeSupplier === supplier.supplier_id ? null : supplier.supplier_id"
                 >
                   <span class="supplier-initial">{{
                     supplier.name.slice(0, 1)
@@ -371,11 +416,32 @@ onMounted(async () => {
                       }}</small
                     >
                   </div>
-                  <span class="risk-chip">高風險</span>
-                </div>
+                  <span class="risk-chip" :class="supplier.risk_level === '高' ? 'high' : supplier.risk_level === '中' ? 'medium' : supplier.risk_level === '低' ? 'low' : 'unknown'">{{ supplier.risk_level === '未標記' ? '未標記' : `${supplier.risk_level}風險` }}</span>
+                </button>
               </div>
-              <p v-else class="empty-text">目前沒有標記為高風險的供應商。</p>
+              <p v-else-if="!detailsBusy && !detailsError" class="empty-text">此據點沒有可確認的供應商。</p>
             </article>
+          </section>
+          <section class="surface orders-surface" aria-label="未結案採購單">
+            <div class="section-title">
+              <div>
+                <div class="eyebrow dark">ERP PURCHASE ORDERS</div>
+                <h2>未結案採購單</h2>
+                <small class="risk-explainer">僅依供應商所在地關聯，不代表已確認受事件影響；交期仍需人工核對。</small>
+              </div>
+              <button v-if="activeSupplier" type="button" class="clear-filter" @click="activeSupplier = null">顯示全部供應商</button>
+            </div>
+            <p v-if="detailsBusy" class="empty-text">正在查詢採購單…</p>
+            <p v-else-if="detailsError" class="alert" role="alert">{{ detailsError }}</p>
+            <div v-else-if="selectedOrders.length" class="order-list">
+              <div v-for="order in selectedOrders" :key="order.po_id" class="order-row">
+                <div><strong>{{ order.po_id }}</strong><small>{{ order.supplier_name }} · {{ order.items || '未填品項' }}</small></div>
+                <span>{{ order.status || '未填狀態' }}</span>
+                <span>下單：{{ order.order_date || '未填' }}</span>
+                <b>{{ order.estimated_delay_days == null ? '延遲未估' : `預估延遲 ${order.estimated_delay_days} 天` }}</b>
+              </div>
+            </div>
+            <p v-else class="empty-text">此{{ activeSupplier ? '供應商' : '據點' }}目前沒有可確認的未結案採購單。</p>
           </section>
           <footer>
             個人作業展示版 · Vue 前端透過 FastAPI 取得 ERP 資料 · 唯讀檢視

@@ -21,6 +21,7 @@ from backend import database
 from backend.access_control import RISK_OVERVIEW_READ, AccessContext, load_principal
 from backend.passwords import verify_password
 from backend import supply_chain_risk
+from api.demo_data import seed_assignment_examples
 
 
 COOKIE_NAME = "vue_erp_session"
@@ -74,6 +75,23 @@ class OverviewResponse(BaseModel):
     regions: list[RiskRegion]
     events: list[RiskEvent]
     high_risk_suppliers: list[SupplierAlert]
+
+
+class PurchaseOrderSummary(BaseModel):
+    po_id: str
+    supplier_id: str
+    supplier_name: str
+    status: str | None = None
+    order_date: str | None = None
+    items: str | None = None
+    estimated_delay_days: int | None = None
+
+
+class RegionDetails(BaseModel):
+    region_key: str
+    suppliers: list[SupplierAlert]
+    events: list[RiskEvent]
+    open_purchase_orders: list[PurchaseOrderSummary]
 
 
 def _encode_session(username: str) -> str:
@@ -131,6 +149,7 @@ def _text(value: object) -> str | None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     database.init_db()
+    seed_assignment_examples()
     yield
 
 
@@ -240,5 +259,74 @@ def overview(principal: AccessContext = Depends(_principal)) -> OverviewResponse
                 region=row[3], risk_level=row[4]
             )
             for row in suppliers
+        ],
+    )
+
+
+@app.get("/api/regions/{region_key}/details", response_model=RegionDetails)
+def region_details(
+    region_key: str, principal: AccessContext = Depends(_principal)
+) -> RegionDetails:
+    if not principal.can(RISK_OVERVIEW_READ):
+        raise HTTPException(status_code=403, detail="沒有供應鏈風險總覽權限")
+    if region_key not in {
+        row["region_key"] for row in supply_chain_risk.get_risk_heatmap_data()
+    }:
+        raise HTTPException(status_code=404, detail="找不到這個據點")
+    country, region = region_key.split("|", 1)
+    with sqlite3.connect(database.DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        suppliers = conn.execute(
+            "SELECT supplier_id, name, country, region, risk_level FROM suppliers "
+            "WHERE country = ? AND region = ? ORDER BY name",
+            (country, region),
+        ).fetchall()
+        events = conn.execute(
+            "SELECT id, event_type, region, country, impact_days, description, "
+            "created_at FROM supply_chain_events "
+            "WHERE (country = ? AND (region = ? OR COALESCE(region, '') = '')) "
+            "OR (COALESCE(country, '') = '' AND region = ?) "
+            "ORDER BY created_at DESC, id DESC LIMIT 20",
+            (country, region, region),
+        ).fetchall()
+        orders = conn.execute(
+            "SELECT p.po_id, p.supplier_id, s.name AS supplier_name, "
+            "p.status, p.order_date, "
+            "p.estimated_delay_days, "
+            "(SELECT group_concat(COALESCE(i.name, pi.product_id), '、') "
+            "FROM purchase_order_items pi LEFT JOIN inventory i "
+            "ON i.product_id = pi.product_id WHERE pi.po_id = p.po_id) AS items "
+            "FROM purchase_orders p JOIN suppliers s "
+            "ON s.supplier_id = p.supplier_id "
+            "WHERE s.country = ? AND s.region = ? "
+            "AND (p.status IS NULL OR p.status NOT IN ('已完成', '已取消')) "
+            "ORDER BY p.order_date DESC, p.po_id DESC",
+            (country, region),
+        ).fetchall()
+    return RegionDetails(
+        region_key=region_key,
+        suppliers=[
+            SupplierAlert(
+                supplier_id=row["supplier_id"], name=row["name"],
+                country=row["country"], region=row["region"],
+                risk_level=row["risk_level"] or "未標記",
+            ) for row in suppliers
+        ],
+        events=[
+            RiskEvent(
+                id=row["id"], event_type=row["event_type"] or "未分類",
+                region=row["region"], country=row["country"],
+                impact_days=row["impact_days"] or 0,
+                description=row["description"], created_at=row["created_at"],
+            ) for row in events
+        ],
+        open_purchase_orders=[
+            PurchaseOrderSummary(
+                po_id=row["po_id"], supplier_id=row["supplier_id"],
+                supplier_name=row["supplier_name"],
+                status=row["status"], order_date=row["order_date"],
+                items=row["items"],
+                estimated_delay_days=row["estimated_delay_days"],
+            ) for row in orders
         ],
     )
