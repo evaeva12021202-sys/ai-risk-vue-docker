@@ -227,6 +227,8 @@ data/erp.db-wal
 # Local demo preview state must never enter repository history.
 data/*preview*.db*
 .preview/
+web/node_modules/
+web/dist/
 line bot/ngrok.exe
 
 # Local AI-assistant and planning state must never enter the public repository.

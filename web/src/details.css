@@ -1,0 +1,27 @@
+.risk-ring {
+  --risk-color: #dd5a55;
+  background: conic-gradient(var(--risk-color) var(--risk-fill), #ecf1f3 0);
+}
+
+.risk-ring.low {
+  --risk-color: #3aafa4;
+  background: conic-gradient(var(--risk-color) var(--risk-fill), #ecf1f3 0);
+}
+
+.risk-ring.medium {
+  --risk-color: #eeb252;
+  background: conic-gradient(var(--risk-color) var(--risk-fill), #ecf1f3 0);
+}
+
+.risk-ring.high {
+  --risk-color: #dd5a55;
+  background: conic-gradient(var(--risk-color) var(--risk-fill), #ecf1f3 0);
+}
+
+.risk-explainer {
+  display: block;
+  margin-top: 7px;
+  color: #8a9ca9;
+  font-size: 10px;
+  line-height: 1.5;
+}

@@ -1,0 +1,28 @@
+name: vue-docker-assignment
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      ERP_DB_PATH: /app/data/erp.db
+      ERP_DEMO_MODE: "true"
+      API_SESSION_SECRET: ${API_SESSION_SECRET:-}
+    volumes:
+      - vue_assignment_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "127.0.0.1:8513:80"
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  vue_assignment_data:
