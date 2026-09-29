@@ -33,9 +33,21 @@ def test_vue_login_and_overview_respect_live_entitlements(tmp_path, monkeypatch)
         overview = client.get("/api/overview")
         assert overview.status_code == 200
         assert set(overview.json()) == {
-            "generated_at", "kpis", "regions", "events", "high_risk_suppliers"
+            "generated_at", "demo_mode", "kpis", "regions", "events", "high_risk_suppliers"
         }
+        assert overview.json()["demo_mode"] is True
         assert overview.json()["regions"]
+        scores = [region["risk_pct"] for region in overview.json()["regions"]]
+        assert max(scores) - min(scores) >= 50
+        for region in overview.json()["regions"]:
+            regional_details = client.get(
+                f"/api/regions/{quote(region['region_key'], safe='')}/details"
+            )
+            assert regional_details.status_code == 200
+            assert any(
+                order["po_id"].startswith("VUE-DEMO-")
+                for order in regional_details.json()["open_purchase_orders"]
+            )
 
         with sqlite3.connect(db_file) as conn:
             supplier = conn.execute(
@@ -68,6 +80,9 @@ def test_vue_login_and_overview_respect_live_entitlements(tmp_path, monkeypatch)
         seed_assignment_examples()
         with sqlite3.connect(db_file) as conn:
             assert conn.execute(
+                "SELECT COUNT(*) FROM purchase_orders WHERE po_id LIKE 'VUE-DEMO-%'"
+            ).fetchone()[0] == len(overview.json()["regions"])
+            assert conn.execute(
                 "SELECT COUNT(*) FROM purchase_orders WHERE po_id = 'VUE-DEMO-001'"
             ).fetchone()[0] == 1
             assert conn.execute(
@@ -75,6 +90,16 @@ def test_vue_login_and_overview_respect_live_entitlements(tmp_path, monkeypatch)
                 "WHERE description LIKE '[作業版示範]%'").fetchone()[0] == 1
 
         with sqlite3.connect(db_file) as conn:
+            conn.execute(
+                "UPDATE risk_heatmap SET risk_pct = 7 WHERE region_key = ?",
+                (region_key,),
+            )
+        seed_assignment_examples()
+        with sqlite3.connect(db_file) as conn:
+            assert conn.execute(
+                "SELECT risk_pct FROM risk_heatmap WHERE region_key = ?",
+                (region_key,),
+            ).fetchone()[0] == 7
             conn.execute(
                 "UPDATE organization_entitlements SET enabled = 0 "
                 "WHERE organization_id = 'demo-org' AND entitlement_key = 'l1_monitor'"

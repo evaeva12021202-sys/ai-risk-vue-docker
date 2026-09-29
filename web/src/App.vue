@@ -232,7 +232,7 @@ onMounted(async () => {
           <div class="data-time">
             資料查詢時間：{{
               formatDate(overview.generated_at)
-            }}　·　風險數字來自 ERP 現有事件與供應商據點
+            }}　·　{{ overview.demo_mode ? "作業版示範資料：風險分數與採購單均為虛構" : "風險數字來自 ERP 現有事件與供應商據點" }}
           </div>
           <section class="metric-grid" aria-label="供應鏈風險指標">
             <article class="metric-card">
@@ -272,6 +272,21 @@ onMounted(async () => {
                 </div>
                 <span class="section-count">{{ hotspots.length }} 個地點</span>
               </div>
+              <p class="map-instruction">選擇地區，即可查看對應供應商與未結採購單</p>
+              <div class="region-choices" aria-label="選擇供應商據點">
+                <button
+                  v-for="region in hotspots"
+                  :key="region.region_key"
+                  type="button"
+                  class="region-choice"
+                  :class="{ selected: activeRegion === region.region_key }"
+                  :aria-pressed="activeRegion === region.region_key"
+                  @click="activeRegion = region.region_key"
+                >
+                  <span><i class="legend" :class="riskBand(region.risk_pct)"></i>{{ region.display_name }}</span>
+                  <strong>{{ Math.round(region.risk_pct) }}%</strong>
+                </button>
+              </div>
               <div
                 class="world-grid"
                 aria-label="依經緯度呈現的供應商風險據點示意圖"
@@ -300,7 +315,7 @@ onMounted(async () => {
                 <span><i class="legend low"></i> 低</span
                 ><span><i class="legend medium"></i> 中</span
                 ><span><i class="legend high"></i> 高</span
-                ><small>點選據點查看詳情</small>
+                ><small>圓點也可切換據點</small>
               </div>
             </article>
 
@@ -334,7 +349,9 @@ onMounted(async () => {
                 <div class="detail-row">
                   <span>來源</span
                   ><strong>{{
-                    selectedRegion.updated_at
+                    selectedRegion.ai_summary?.startsWith("[作業版示範]")
+                      ? "作業版虛構示範資料"
+                      : selectedRegion.updated_at
                       ? "ERP 已更新的風險熱點"
                       : "ERP 供應商據點與事件"
                   }}</strong>

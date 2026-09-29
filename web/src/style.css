@@ -402,6 +402,56 @@ button {
   font-size: 11px;
   color: #8998a6;
 }
+.map-instruction {
+  margin: -6px 0 12px;
+  color: #647d8e;
+  font-size: 12px;
+}
+.region-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 7px;
+  margin-bottom: 15px;
+}
+.region-choice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #d5e2e9;
+  border-radius: 8px;
+  background: #f7fafb;
+  color: #29495a;
+  text-align: left;
+  cursor: pointer;
+  font-size: 11px;
+}
+.region-choice span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.region-choice strong {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.region-choice.selected {
+  border-color: #2b6c88;
+  background: #e7f3f8;
+  box-shadow: inset 0 0 0 1px #2b6c88;
+}
+.region-choice:focus-visible,
+.map-pin:focus-visible {
+  outline: 3px solid #144c69;
+  outline-offset: 2px;
+}
 .world-grid {
   height: 320px;
   border-radius: 13px;
@@ -452,8 +502,8 @@ button {
 }
 .map-pin {
   position: absolute;
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   transform: translate(-50%, -50%);
   border: 3px solid white;
   border-radius: 50%;

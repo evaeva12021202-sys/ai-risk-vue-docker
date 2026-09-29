@@ -71,6 +71,7 @@ class SupplierAlert(BaseModel):
 
 class OverviewResponse(BaseModel):
     generated_at: str
+    demo_mode: bool
     kpis: dict[str, int]
     regions: list[RiskRegion]
     events: list[RiskEvent]
@@ -250,6 +251,7 @@ def overview(principal: AccessContext = Depends(_principal)) -> OverviewResponse
         ).fetchall()
     return OverviewResponse(
         generated_at=datetime.now(timezone.utc).isoformat(),
+        demo_mode=database.is_demo_mode_enabled(),
         kpis={key: int(value) for key, value in kpis.items()},
         regions=regions,
         events=events,
