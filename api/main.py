@@ -14,7 +14,7 @@ import secrets
 import sqlite3
 import time
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from backend import database
@@ -22,6 +22,7 @@ from backend.access_control import RISK_OVERVIEW_READ, AccessContext, load_princ
 from backend.passwords import verify_password
 from backend import supply_chain_risk
 from api.demo_data import seed_assignment_examples
+from api.read_only import RESOURCES, can_read, list_resources, read_resource
 
 
 COOKIE_NAME = "vue_erp_session"
@@ -172,8 +173,8 @@ def login(credentials: LoginRequest, response: Response) -> SessionResponse:
     if row is None or not verify_password(credentials.password, row[0] or ""):
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
     principal = load_principal(username)
-    if principal is None or not principal.can(RISK_OVERVIEW_READ):
-        raise HTTPException(status_code=403, detail="沒有供應鏈風險總覽權限")
+    if principal is None or not list_resources(principal):
+        raise HTTPException(status_code=403, detail="沒有可用的資料查詢權限")
     response.set_cookie(
         COOKIE_NAME,
         _encode_session(username),
@@ -332,3 +333,34 @@ def region_details(
             ) for row in orders
         ],
     )
+
+
+@app.get("/api/data")
+def data_catalog(principal: AccessContext = Depends(_principal)) -> dict:
+    """List only the API datasets this live principal may read."""
+    return {"resources": list_resources(principal)}
+
+
+@app.get("/api/data/{resource_key:path}")
+def data_rows(
+    resource_key: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    principal: AccessContext = Depends(_principal),
+) -> dict:
+    """Read an allowlisted dataset; no arbitrary SQL or mutation endpoint exists."""
+    resource = RESOURCES.get(resource_key)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="找不到資料查詢項目")
+    if not can_read(principal, resource):
+        raise HTTPException(status_code=403, detail="沒有此資料的查詢權限")
+    columns, items, has_more = read_resource(resource, limit, offset)
+    return {
+        "resource": resource_key,
+        "module": resource.module,
+        "columns": columns,
+        "items": items,
+        "limit": limit,
+        "offset": offset,
+        "has_more": has_more,
+    }
