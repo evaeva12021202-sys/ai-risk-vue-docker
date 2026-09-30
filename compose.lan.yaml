@@ -1,0 +1,7 @@
+# Opt-in LAN presentation mode. The base compose file remains localhost-only.
+services:
+  web:
+    ports:
+      - "${LAN_BIND_IP:?Set LAN_BIND_IP to this computer's private LAN IPv4 address}:8514:80"
+    volumes:
+      - ./web/nginx.lan.conf:/etc/nginx/conf.d/default.conf:ro

@@ -22,6 +22,26 @@ docker compose up --build -d
 
 開啟 `http://127.0.0.1:8514/`，使用 `viewer / viewer` 登入。`8513` 保留給本機 Vite 預覽，與 Docker 版分開。此帳密只在新建的作業版示範資料庫啟用。查看容器：`docker compose ps`；停止：`docker compose down`。停止不會刪除 volume。若要重設作業資料庫，需另外手動刪除專用 volume；不要對原專案資料庫操作。未設定 `API_SESSION_SECRET` 時，API 會在啟動時產生隨機金鑰，重啟後需要重新登入；若要讓登入跨重啟維持有效，可在 Compose 啟動前設定自己的長隨機字串。
 
+## 限同一區網展示（可選）
+
+一般啟動仍只開放本機。需要讓同一 Wi-Fi 的其他電腦觀看時，先用 `ipconfig` 找到這台電腦目前連線中的 Wi-Fi/乙太網路 IPv4 位址（不要用 WSL、VMware 的虛擬網卡），再於 PowerShell 啟動：
+
+```powershell
+$env:LAN_BIND_IP = "172.20.10.3"  # 範例；每次依 ipconfig 的實際位址更換
+docker compose -f compose.yaml -f compose.lan.yaml up -d
+```
+
+同一區網的其他人開 `http://該IPv4位址:8514/`，使用 `viewer / viewer` 查看示範風險畫面。LAN 設定的 Nginx 只轉送 Vue 實際使用的登入、風險總覽與據點查詢 API；`/api/data` 等其他模組資料 API 一律回 403，避免示範帳密暴露薪資、總帳等資料。這是 HTTP 區網展示，不適合公開上網或傳送真實資料。電腦和 Docker 必須持續開啟；若同網路仍連不上，先確認 Windows 防火牆、網路設定與 Wi-Fi 是否阻擋裝置間互連。不要為了測試而全面停用防火牆。
+
+展示結束後回到僅本機模式：
+
+```powershell
+Remove-Item Env:LAN_BIND_IP -ErrorAction SilentlyContinue
+docker compose up -d
+```
+
+這會重新建立 web 容器，但保留作業版專用資料庫 volume。
+
 Vue 畫面目前只展示供應鏈風險的唯讀總覽。採購單依供應商主檔的國家與地區精確對應據點；這代表「可能需要檢查」，不代表已確認受到事件影響。資料庫沒有原預計交期欄位，因此畫面僅顯示下單日期及已有紀錄的預估延遲，不能推算承諾交期。AI 分析、What-if 寫入、採購核准等仍由既有 Streamlit 版處理，尚未搬到 Vue。
 
 ## 其他模組的資料查詢 API（尚未顯示在 Vue）
