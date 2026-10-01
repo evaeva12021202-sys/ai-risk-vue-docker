@@ -1,172 +1,122 @@
-# AI-Risk-Based-Inventory-ERP
+# Vue + Docker 個人作業版：從下載到啟動
 
-> **個人 Vue／Docker 作業版：** 想用 Vue 前端、FastAPI 後端和 Docker 啟動，請直接閱讀 [Vue + Docker 操作流程](README.vue-docker.md)。此版本在個人儲存庫獨立維護，原本的 Streamlit 專案說明保留如下。Docker 示範帳密只適合本機或受信任區網，不代表已有可供任何人直接使用的公開網站。
+這是基於 [falltwo/AI-Risk-Based-Inventory-ERP](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP)（MIT 授權）的獨立作業版。原本的 Streamlit 程式仍在 `app.py`；這一版另外提供 Vue 畫面、FastAPI API 與 Docker Compose。Docker 使用自己的 SQLite volume，不會連接原本 `data/erp.db`。原專案與個人作業版的開發、啟動方式互不影響。
 
-[English](README.md) | [繁體中文](README.zh.md)
+> **公開程式碼 ≠ 已部署的公開網站。** 以下 Compose 以固定示範帳密建立測試資料，僅供自己電腦或受信任區網使用，**不可將 8514／8515 埠直接轉發至網際網路**。想讓任何人透過網址完整操作與使用 AI，仍須先完成 HTTPS、正式帳號與權限、每位訪客的資料隔離、資料庫持久化，以及 AI 金鑰和費用控管。GitHub Pages 無法執行這個 Python API。
 
-[![Tests](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml/badge.svg)](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml)
-[![Release](https://img.shields.io/github/v/release/falltwo/AI-Risk-Based-Inventory-ERP?display_name=tag)](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/releases)
-![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+## 架構
 
-> **v1.0 — A governed supply-chain AI decision loop**
-> AI makes judgments and proposals; humans retain execution authority. Protected AI/Gateway procurement writes can be approved, replayed, and traced.
-
-This project implements an AI Agent ERP with governance controls. It integrates external supply-chain risk, internal procurement data, AI-assisted proposals, human approval, and ERP execution.
-
-> [!IMPORTANT]
-> v1.0 is a competition and research proof of concept. Its deployment boundary is one SQLite database per organization. It does not provide shared-database row-level multi-tenancy, external IAM/SSO, or distributed transactions, and must not be treated as a production identity or authorization service on the public internet.
-
-## Functional tiers
-
-| Tier | Demo account | Provided capabilities | Restrictions |
-|---|---|---|---|
-| **L1 Risk Observer** | `viewer / viewer` | Risk KPIs, heatmap, alerts, read-only CSV mapping, notification preview | Cannot create proposals or modify ERP data |
-| **L2 Intelligence & Decision** | `planner / planner` | Impact analysis, What-if, alternative-supplier comparison, durable Proposal submission | Cannot approve or directly execute ERP writes |
-| **L3 Approval & Execution** | `approver / approver` | Review evidence, approve/reject, Gateway execution, audit timeline | Cannot approve its own proposal |
-
-### Procurement decision flow
-
-![Procurement decision flow](docs/images/governed_procurement_flow_en.drawio.png)
-
-[Editable draw.io source](docs/diagrams/governed_procurement_flow_en.drawio)
-
-## v0.1 → v1.0
-
-v1.0 builds on the v0.1 governance harness by adding the L1→L2→L3 supply-chain decision workflow and tier-specific interfaces.
-
-| Area | v0.1 — Governance Harness Complete | v1.0 — Governed Decision Loop |
-|---|---|---|
-| Primary outcome | Closed governance bypasses across Web, LINE, and rollback paths | Connected the governance foundation into a complete L1→L2→L3 product flow |
-| AI state disclosure | Code-enforced pending/denied disclosure | Separate Proposal, Approval, and Execution objects keep UI and database state aligned |
-| Supply-chain workflow | Intelligence, heatmap, affected records, and recommendations existed as separate capabilities | An affected procurement line can become a governed alternative-purchase Proposal |
-| Human approval | Generic write approval with auditable state | L3 reviews source PO, supplier change, quantity, unit price, reason, and digest |
-| Execution safety | Gateway, hash-chain logs, and transaction baseline | Exact line/price identity, live revocation checks, one effect per source line, idempotent receipts |
-| Product tiers | Governance roles and capabilities | Three accounts with distinct views and least-privilege behavior |
-| Automated tests | **56 passing tests** on the public snapshot | **327 passing tests** in v1.0 release verification |
-| Documentation | Chinese README and architecture diagrams | Bilingual README, version comparison, documented scope and limitations, and English release notes |
-
-The v0.1 column is based on the initial cleaned snapshot in this public repository. Earlier internal development history is intentionally not linked from public documentation.
-
-## Governance and security design
-
-- **Server-side capability checks:** role, organization membership, and entitlements are reloaded from the database; missing or revoked access fails closed.
-- **Separation of duties:** L2 proposes and L3 decides. The original proposer cannot self-approve, even after a role change.
-- **Immutable approval evidence:** a canonical payload digest covers effectful fields and binds the source PO line, supplier price row, and operation ID.
-- **Atomic execution:** protected purchase approval performs CAS state transition, ERP write, business-effect claim, execution receipt, and terminal status in one SQLite transaction.
-- **Idempotent replay:** the same operation returns its existing receipt instead of creating a second purchase order.
-- **End-to-end audit:** Proposal, approval, and execution share one operation ID; public UI surfaces expose only redacted summaries.
-- **34 governed tools:** 27 `read_only`, 1 `suggestion`, 6 `write`, and 0 `dangerous`; eight specialist Agents receive task-specific allowlists.
-
-## Architecture
-
-![System architecture](docs/images/system_architecture_en.drawio.png)
-
-[Editable draw.io source](docs/diagrams/system_architecture_en.drawio)
-
-The governance claims above are scoped to the protected AI/Gateway procurement workflow. Existing manual Web ERP forms have role-based access controls, but not every manual write produces a Proposal, Approval, and execution receipt.
-
-## Quick start
-
-### 1. Install
-
-```bash
-git clone https://github.com/falltwo/AI-Risk-Based-Inventory-ERP.git
-cd AI-Risk-Based-Inventory-ERP
-
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-# source .venv/bin/activate
-
-pip install -r requirements.txt
+```
+瀏覽器 → Vue/Nginx（一般模式 localhost:8514；LAN 模式本機完整入口 localhost:8515）→ FastAPI（容器內）→ 獨立 SQLite volume
 ```
 
-### 2. Configure a local demo
+- `web/`：Vue 3 風險總覽、各模組資料頁、常用操作表單及 AI 問答入口。
+- `api/`：FastAPI，沿用現有 `backend/` 的資料與角色能力規則。每次請求重新查驗帳號及組織權限；只接受明確列出的操作，不提供任意 SQL。
+- `compose.yaml`：啟動 `web` 和 `api` 兩個容器，並保存作業版專用資料庫。
 
-```bash
-cp .env.example .env
+## 第一次使用：Docker 啟動流程
+
+先安裝 Git 與 Docker Desktop，開啟 Docker Desktop，確認它顯示執行中。在 **PowerShell** 依序執行：
+
+```powershell
+git clone https://github.com/evaeva12021202-sys/ai-risk-vue-docker.git
+cd ai-risk-vue-docker
+docker compose version
+docker compose up --build -d
 ```
 
-Set at least:
+如果已經下載專案，直接在含 `compose.yaml` 的資料夾執行 `docker compose up --build -d` 即可，不需要再次 clone。
 
-```dotenv
-ERP_DEMO_MODE=true
-LLM_MODEL=gemini/gemini-2.5-flash
-GEMINI_API_KEY=replace_with_your_key
+等候約數十秒，再檢查服務：
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 api
 ```
 
-### 3. Run
+`api` 應顯示健康狀態；`web` 應持續運行。然後用**同一台電腦**的瀏覽器開啟 [http://127.0.0.1:8514/](http://127.0.0.1:8514/)。可用 `viewer / viewer` 看資料，或以 `admin / admin` 測試完整操作。這兩組是**虛構示範帳號，不是你個人 GitHub 的密碼**，請勿填入真實 ERP 資料。`8513` 保留給本機 Vite 預覽，與 Docker 版分開。
 
-```bash
-streamlit run app.py
+### 再次啟動、停止與更新
+
+```powershell
+docker compose up -d             # 下次開機後啟動
+docker compose ps                # 看容器狀態
+docker compose logs --tail=80 web # 看前端錯誤
+docker compose logs --tail=80 api # 看後端錯誤
+docker compose down              # 停止；保留作業資料庫
 ```
 
-Known credentials such as `viewer`, `planner`, and `approver` are created and displayed only in Demo Mode. **Use this mode only on localhost; never expose it to the public internet.**
+程式更新後，在此資料夾執行 `git pull` 和 `docker compose up --build -d`。`docker compose down` **不會**刪除 volume，既有資料仍在；不要加 `-v`，那會刪掉作業版資料庫。未設定 `API_SESSION_SECRET` 時，API 在啟動時產生隨機金鑰，重啟後需重新登入；要讓登入跨重啟維持有效，可在啟動前設定自己的長隨機字串。不要把金鑰提交到 Git。
 
-## Key configuration
+如果 `8514` 打不開：先確認 Docker Desktop 正在執行、`docker compose ps` 的 `api` 是否 healthy、`8514` 是否已被其他程式占用，再看上面的 `logs`。在手機或別台電腦輸入 `127.0.0.1` 會連到**那台裝置自己**，不會連到你的電腦；同區網展示請看下一節。
 
-| Environment variable | Purpose | Default / requirement |
-|---|---|---|
-| `ERP_DEMO_MODE` | Seeds synthetic data and demo users | `false`; localhost only |
-| `ERP_ORGANIZATION_ID` | Binds a SQLite database to one organization | Demo uses `demo-org`; existing non-demo databases must set it and then provision memberships and entitlements |
-| `ERP_DB_PATH` | Custom SQLite path | `data/erp.db` |
-| `LLM_MODEL` | Primary LiteLLM model | `gemini/gemini-2.5-flash` |
-| `LLM_FALLBACK_MODELS` | Comma-separated fallback models | See `.env.example` |
-| `LLM_ANALYSIS_MODEL` | Optional model for classification/translation | Primary chain when unset |
-| `GEMINI_API_KEY` / `OPENAI_API_KEY` | Provider credentials | Depends on the selected model |
-| `GNEWS_API_KEY` | Supply-chain news source | Optional |
-| `ERP_SCHEDULER_ACTOR` | Service identity for scheduled risk refresh | Disabled when unset |
-| `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` | LINE Bot | Optional |
+## 限同一區網展示（可選）
 
-## Tests and verification
+一般啟動仍只開放本機。需要讓同一 Wi-Fi 的其他電腦觀看時，先用 `ipconfig` 找到這台電腦目前連線中的 Wi-Fi/乙太網路 IPv4 位址（不要用 WSL、VMware 的虛擬網卡），再於 PowerShell 啟動：
 
-```bash
-pip install -r requirements-dev.txt
-python -m pytest -q
+```powershell
+$env:LAN_BIND_IP = "172.20.10.3"  # 範例；每次依 ipconfig 的實際位址更換
+docker compose -f compose.yaml -f compose.lan.yaml up -d
 ```
 
-v1.0 local release verification: **327 passed**. CI runs on every pull request.
+同一區網的其他人開 `http://該IPv4位址:8514/`，使用 `viewer / viewer` 查看示範風險畫面。LAN 設定的 Nginx 只轉送登入、風險總覽與據點查詢 API；`/api/data`、`/api/actions`、`/api/ai` 一律回 403。本機完整測試入口是 `http://127.0.0.1:8515/`，可用 `admin / admin` 測試獨立作業版資料庫。這是 HTTP 區網展示，不適合公開上網或傳送真實資料。電腦和 Docker 必須持續開啟；若同網路仍連不上，先確認 Windows 防火牆、網路設定與 Wi-Fi 是否阻擋裝置間互連。不要為了測試而全面停用防火牆。
 
-Coverage includes:
+展示結束後回到僅本機模式：
 
-- L1/L2/L3 navigation and negative server-side authorization tests
-- Self-approval, revoked access, and cross-organization denial
-- Payload, resource-version, source-line, and price tamper rejection
-- Concurrent approval, CAS, rollback, and receipt replay
-- A single full replacement effect per source procurement line
-- Demo seed integrity with no orphan items and stable approved source-line identity across replays
-
-## Repository layout
-
-```text
-backend/                     access control, Agents, Gateway, Proposal, ERP, database
-frontend/                    Streamlit pages and L1/L2/L3 interfaces
-line bot/                    FastAPI + LINE Messaging API
-scripts/                     demo seed and operations utilities
-tests/                       governance, authorization, transaction, and UI-contract tests
-docs/                        architecture diagrams, runbooks, and release notes
+```powershell
+Remove-Item Env:LAN_BIND_IP -ErrorAction SilentlyContinue
+docker compose up -d
 ```
 
-## Known limitations
+這會重新建立 web 容器，但保留作業版專用資料庫 volume。
 
-- One SQLite database represents one organization; this is not shared-database row-level multi-tenancy.
-- Application audit data is tamper-evident, but a host or database administrator can still alter files directly.
-- SQLite atomicity does not automatically extend to an external ERP API; cross-system execution still needs outbox, worker, and reconciliation patterns.
-- Demo users and synthetic data must not exist in production. Production identity, membership, entitlement, and secret provisioning are deployment responsibilities.
-- Upgrading an older non-demo database without an organization boundary fails fast. Set `ERP_ORGANIZATION_ID`, then provision `user_organizations` and `organization_entitlements` before startup.
+採購單依供應商主檔的國家與地區精確對應據點；這代表「可能需要檢查」，不代表已確認受到事件影響。資料庫沒有原預計交期欄位，因此畫面僅顯示下單日期及已有紀錄的預估延遲，不能推算承諾交期。
 
-## Versions
+## 各模組資料查詢與操作
 
-- [v1.0 Releases](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/releases)
-- [v0.1 Release](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/releases/tag/v0.1)
-- [v1.0 English release notes](docs/releases/v1.0.md)
-- [v0.1 English release notes](docs/releases/v0.1.md)
+`GET /api/data` 列出目前登入角色可讀取的資料項目，`GET /api/data/{模組}/{項目}?limit=50&offset=0` 取得資料。每次最多 100 筆；只能讀取程式明確列出的欄位和查詢，不能由請求自行組 SQL。API 涵蓋營運指標、商品／庫存／倉庫、採購、銷售、財務、人資、碳排、供應鏈事件，以及管理員的 AI/LINE 紀錄。營運指標使用與原看板相同的統計條件；其他資料以結構化欄位傳回，供後續 Vue 畫面串接。
 
-Stack: Python 3.11 · Streamlit · SQLite · LiteLLM · FastAPI · LINE Messaging API · Plotly
+例如 `inventory/products`、`procurement/purchase-orders`、`sales/orders`、`finance/ledger`、`hr/payroll`、`carbon/emissions`。資料項目完整清單以登入後的 `/api/data` 為準。沿用原本角色範圍：財務僅 admin；薪資僅 admin/hr；銷售僅 admin/sales；倉儲與採購一般查詢僅 admin/warehouse；風險資料仍需有效的 L1 capability。每次請求都重新解析身分，角色或 L1 授權撤銷後立即失效。
 
-## License
+`GET /api/actions` 列出可用表單，`POST /api/actions/{操作}` 執行本機作業版的明確操作；寫入需要同源登入 Cookie 與 `X-ERP-Action: vue-local` 標頭。現有操作包含新增商品、倉庫、供應商、報價、銷售單、收款、總帳、員工、薪資、出勤、碳係數、減碳目標、風險事件，以及庫存出入與訂單狀態更新。複合寫入使用單一交易，庫存不足或無權限時拒絕。這些操作只會修改 Docker 作業版的獨立資料庫。
 
-Released under the [MIT License](LICENSE).
+`POST /api/ai/chat` 接原版 Agent 協調器與治理工具；`POST /api/ai/what-if` 接原版供應鏈情境分析。需要在啟動 Compose 前設定模型金鑰，例如 PowerShell 的 `$env:GEMINI_API_KEY = '你的金鑰'`；不要把金鑰提交到 Git。沒有金鑰時 API 回 503，畫面明確標示 AI 未啟用，不會輸出假分析。AI 工具的寫入仍經過原版 Tool Gateway 審批。
+
+待審批項目現在可在 Vue 檢視；具有決策權限的角色可經原版 Gateway 核准或拒絕，提案人不能核准自己的提案。這仍是**分階段移植中**，不能稱為完整取代 Streamlit：採購提案建立與完整證據畫面、ERP 交換、AI 風險建議更新、CSV 匯入、圖表／報表下載與部分模組的進階編修尚未在 Vue 實作。原版仍保留在獨立的主專案工作目錄。
+
+在 `ERP_DEMO_MODE=true` 的獨立資料庫中，API 會替每個地圖據點建立一筆 `VUE-DEMO-` 開頭的未結虛構採購單，並加入一筆示範事件；各地區風險分數刻意拉開，方便比較與操作。畫面會標示這些是作業版虛構資料，不是 AI 即時判斷，也不代表採購單真的受影響。重啟不會重複新增，既有的熱圖更新紀錄不會被示範分數覆寫。關閉示範模式就不會建立這些資料，原專案資料庫也不會受影響。
+
+## 不使用 Docker 的開發方式
+
+先在獨立的 Python 虛擬環境安裝 `api/requirements.txt`，再設定獨立資料庫路徑及示範模式：
+
+```powershell
+$env:ERP_DB_PATH = "C:\path\to\vue-assignment.db"
+$env:ERP_DEMO_MODE = "true"
+python -m uvicorn api.main:app --reload --port 8001
+```
+
+第二個終端機執行：
+
+```powershell
+cd web
+npm ci
+npm run dev
+```
+
+Vite 開發伺服器會將 `/api` 轉送到 `127.0.0.1:8001`。正式容器由 Nginx 轉送到內部 API 服務。
+
+## 驗證
+
+```powershell
+python -m pytest tests/test_vue_api.py -q
+cd web
+npm ci
+npm run build
+```
+
+測試會檢查未登入拒絕、錯誤密碼拒絕、正確登入、取得 ERP 資料、每個據點都有示範採購單、示範風險分數有足夠差距、權限撤銷後立即拒絕，以及登出。手動測試時，在 `8514` 登入，用地圖上方的地區清單切換據點；每個地區都應顯示對應的未結採購單。點選供應商後，採購單還能依供應商篩選。此資料僅供展示，不要作為實際採購決策依據。
+
+---
+
+[原版 Streamlit 英文說明](README.streamlit.md) · [原版 Streamlit 繁體中文說明](README.zh.md)

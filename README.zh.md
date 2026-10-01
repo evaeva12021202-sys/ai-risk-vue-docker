@@ -1,6 +1,6 @@
 # AI-Risk-Based-Inventory-ERP
 
-[English](README.md) | [繁體中文](README.zh.md)
+[English](README.streamlit.md) | [繁體中文](README.zh.md)
 
 [![Tests](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml/badge.svg)](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/falltwo/AI-Risk-Based-Inventory-ERP?display_name=tag)](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/releases)
