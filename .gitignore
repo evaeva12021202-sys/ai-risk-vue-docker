@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -224,6 +226,10 @@ data/erp.db
 data/erp.db-journal
 data/erp.db-shm
 data/erp.db-wal
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
 # Local demo preview state must never enter repository history.
 data/*preview*.db*
 .preview/

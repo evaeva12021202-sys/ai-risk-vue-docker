@@ -1,4 +1,4 @@
-"""Read-only supply-chain API for the independent Vue demonstration."""
+"""API for the independent local Vue workspace and restricted LAN demo."""
 
 from __future__ import annotations
 
@@ -14,15 +14,19 @@ import secrets
 import sqlite3
 import time
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from backend import database
-from backend.access_control import RISK_OVERVIEW_READ, AccessContext, load_principal
+from backend.access_control import (
+    APPROVAL_DECIDE, APPROVAL_QUEUE_READ, GLOBAL_APPROVAL_DECIDE,
+    RISK_OVERVIEW_READ, RISK_WHAT_IF_RUN, AccessContext, load_principal,
+)
 from backend.passwords import verify_password
 from backend import supply_chain_risk
 from api.demo_data import seed_assignment_examples
 from api.read_only import RESOURCES, can_read, list_resources, read_resource
+from api.actions import ACTIONS, catalog as action_catalog, execute as execute_action
 
 
 COOKIE_NAME = "vue_erp_session"
@@ -33,6 +37,20 @@ _session_key = os.environ.get("API_SESSION_SECRET", "").encode() or secrets.toke
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=256)
+
+
+class ActionRequest(BaseModel):
+    values: dict[str, object]
+
+
+class AIRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=2000)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=10)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    outcome: str
+    reason: str = Field(default="", max_length=500)
 
 
 class SessionResponse(BaseModel):
@@ -364,3 +382,170 @@ def data_rows(
         "offset": offset,
         "has_more": has_more,
     }
+
+
+def _action_header(x_erp_action: str | None = Header(default=None)) -> None:
+    # Browser form submissions from other sites cannot set this header without
+    # a successful CORS preflight; this API grants no cross-origin CORS.
+    if x_erp_action != "vue-local":
+        raise HTTPException(status_code=403, detail="操作來源不受信任")
+
+
+@app.get("/api/actions")
+def available_actions(principal: AccessContext = Depends(_principal)) -> dict:
+    return {"actions": action_catalog(principal)}
+
+
+@app.post("/api/actions/{action_key:path}")
+def run_action(
+    action_key: str,
+    body: ActionRequest,
+    principal: AccessContext = Depends(_principal),
+    _: None = Depends(_action_header),
+) -> dict:
+    if action_key not in ACTIONS:
+        raise HTTPException(status_code=404, detail="找不到操作")
+    return execute_action(action_key, body.values, principal)
+
+
+def _ai_configured() -> bool:
+    model = os.environ.get("LLM_MODEL", "gemini/gemini-2.5-flash").lower()
+    if model.startswith("gemini/"):
+        return bool(os.environ.get("GEMINI_API_KEY"))
+    if model.startswith("openai/"):
+        return bool(os.environ.get("OPENAI_API_KEY"))
+    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+
+
+@app.get("/api/ai/status")
+def ai_status(principal: AccessContext = Depends(_principal)) -> dict:
+    return {"configured": _ai_configured(), "model": os.environ.get("LLM_MODEL", "gemini/gemini-2.5-flash"),
+            "can_what_if": principal.can(RISK_WHAT_IF_RUN)}
+
+
+@app.post("/api/ai/what-if")
+def ai_what_if(
+    body: AIRequest,
+    principal: AccessContext = Depends(_principal),
+    _: None = Depends(_action_header),
+) -> dict:
+    if not principal.can(RISK_WHAT_IF_RUN):
+        raise HTTPException(403, "沒有執行 What-if 的權限")
+    if not _ai_configured():
+        raise HTTPException(503, "尚未設定模型金鑰；請在 Docker 環境設定 GEMINI_API_KEY 或 OPENAI_API_KEY")
+    try:
+        from backend import init_ai_tools
+        init_ai_tools()
+        from backend.supply_chain_risk import what_if_simulation
+        answer = what_if_simulation(None, body.question, actor=principal.username)
+        if answer.startswith("模擬分析暫時無法產生"):
+            raise RuntimeError("模型服務暫時不可用")
+        return {"answer": answer, "model": os.environ.get("LLM_MODEL", "gemini/gemini-2.5-flash")}
+    except Exception as exc:
+        raise HTTPException(503, "AI 分析暫時無法完成；請檢查模型金鑰、連線與伺服器紀錄") from exc
+
+
+@app.post("/api/ai/chat")
+def ai_chat(
+    body: AIRequest,
+    principal: AccessContext = Depends(_principal),
+    _: None = Depends(_action_header),
+) -> dict:
+    if principal.role not in {"admin", "warehouse", "sales", "hr"}:
+        raise HTTPException(403, "目前角色沒有 AI 對話權限")
+    if not _ai_configured():
+        raise HTTPException(503, "尚未設定模型金鑰；請在 Docker 環境設定 GEMINI_API_KEY 或 OPENAI_API_KEY")
+    history = [item for item in body.history if item.get("role") in {"user", "assistant"}
+               and isinstance(item.get("content"), str) and len(item["content"]) <= 2000]
+    try:
+        from backend import init_ai_tools
+        init_ai_tools()
+        from backend.auth import acting_as
+        from backend.agent_orchestrator import orchestrate
+        with acting_as(principal.role):
+            result = orchestrate(body.question, role=principal.role,
+                                 actor=principal.username, history=history)
+        if "[模型呼叫失敗]" in result.get("reply", ""):
+            raise RuntimeError("模型服務暫時不可用")
+        return {"reply": result.get("reply", ""), "routing": result.get("routing"),
+                "pending": result.get("pending", [])}
+    except Exception as exc:
+        raise HTTPException(503, "AI 助理暫時無法完成；請檢查模型金鑰、連線與伺服器紀錄") from exc
+
+
+def _visible_approval(item: dict, principal: AccessContext) -> bool:
+    if principal.can(GLOBAL_APPROVAL_DECIDE):
+        return True
+    if not principal.can(APPROVAL_DECIDE):
+        return principal.can(APPROVAL_QUEUE_READ) and principal.role == "warehouse"
+    if item.get("tool_name") not in {"create_purchase_order", "sync_external_purchase_order"}:
+        return False
+    operation_id = str(item.get("operation_id") or "")
+    if not operation_id.startswith("proposal:create-po:"):
+        return False
+    from backend.purchase_proposals import get_purchase_proposal_for_operation
+    try:
+        return get_purchase_proposal_for_operation(operation_id, actor=principal.username) is not None
+    except (PermissionError, ValueError):
+        return False
+
+
+@app.get("/api/approvals")
+def approval_queue(principal: AccessContext = Depends(_principal)) -> dict:
+    if not principal.can(APPROVAL_QUEUE_READ):
+        raise HTTPException(403, "沒有檢視審批清單的權限")
+    from backend.agent_logger import get_pending_approvals
+    items = [item for item in get_pending_approvals("pending") if _visible_approval(item, principal)]
+    return {"items": [{key: item.get(key) for key in (
+        "approval_id", "tool_name", "parameters", "requester_username",
+        "created_at", "operation_id", "status",
+    )} for item in items[:100]], "can_decide": principal.can(APPROVAL_DECIDE) or principal.can(GLOBAL_APPROVAL_DECIDE)}
+
+
+@app.post("/api/approvals/{approval_id}/decision")
+def decide_approval(
+    approval_id: str,
+    body: ApprovalDecisionRequest,
+    principal: AccessContext = Depends(_principal),
+    _: None = Depends(_action_header),
+) -> dict:
+    if body.outcome not in {"approve", "reject"}:
+        raise HTTPException(422, "決策只能是 approve 或 reject")
+    if body.outcome == "reject" and not body.reason.strip():
+        raise HTTPException(422, "拒絕時必須填寫原因")
+    from backend.agent_logger import get_pending_approval_by_id
+    item = get_pending_approval_by_id(approval_id)
+    if item is None:
+        raise HTTPException(404, "找不到審批項目")
+    if not _visible_approval(item, principal) or not (
+        principal.can(APPROVAL_DECIDE) or principal.can(GLOBAL_APPROVAL_DECIDE)
+    ):
+        raise HTTPException(403, "沒有決策權限")
+    try:
+        from backend import init_ai_tools
+        from backend.auth import acting_as
+        init_ai_tools()
+        operation_id = str(item.get("operation_id") or "")
+        with acting_as(str(item.get("requester") or "")):
+            if operation_id.startswith("proposal:create-po:"):
+                from backend.purchase_proposals import ApprovalDecision, get_purchase_proposal_for_operation, decide_purchase_proposal
+                proposal = get_purchase_proposal_for_operation(operation_id, actor=principal.username)
+                if proposal is None:
+                    raise HTTPException(403, "無法驗證採購提案證據")
+                result = decide_purchase_proposal(
+                    ApprovalDecision(proposal_id=proposal.proposal_id,
+                                     outcome=body.outcome, reason=body.reason.strip()), actor=principal.username
+                )
+                status_value, message = result.status, result.message
+            else:
+                from backend.agent_logger import approve_action, reject_action
+                result = (approve_action(approval_id, principal.username) if body.outcome == "approve"
+                          else reject_action(approval_id, body.reason.strip(), principal.username))
+                status_value, message = result.get("status"), result.get("message")
+        if (body.outcome == "approve" and status_value not in {"ok", "pending"}) or (
+            body.outcome == "reject" and status_value != "denied"
+        ):
+            raise HTTPException(409, message or "審批未完成")
+        return {"status": status_value, "message": message}
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(403, str(exc)) from exc

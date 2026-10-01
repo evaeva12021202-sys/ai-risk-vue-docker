@@ -1,5 +1,7 @@
 # AI-Risk-Based-Inventory-ERP
 
+> **個人 Vue／Docker 作業版：** 想用 Vue 前端、FastAPI 後端和 Docker 啟動，請直接閱讀 [Vue + Docker 操作流程](README.vue-docker.md)。此版本在個人儲存庫獨立維護，原本的 Streamlit 專案說明保留如下。Docker 示範帳密只適合本機或受信任區網，不代表已有可供任何人直接使用的公開網站。
+
 [English](README.md) | [繁體中文](README.zh.md)
 
 [![Tests](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml/badge.svg)](https://github.com/falltwo/AI-Risk-Based-Inventory-ERP/actions/workflows/tests.yml)

@@ -1,5 +1,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import ModuleBrowser from "./ModuleBrowser.vue";
+import ActionPanel from "./ActionPanel.vue";
+import AiPanel from "./AiPanel.vue";
+import ApprovalPanel from "./ApprovalPanel.vue";
 
 const session = ref(null);
 const overview = ref(null);
@@ -12,7 +16,29 @@ const regionDetails = ref(null);
 const activeSupplier = ref(null);
 const detailsBusy = ref(false);
 const detailsError = ref("");
+const catalog = ref([]);
+const actions = ref([]);
+const activeModule = ref("risk");
 let detailsRequestId = 0;
+
+const moduleLabels = {
+  dashboard: "營運分析看板", inventory: "進銷存", procurement: "採購管理",
+  sales: "銷售管理", finance: "財務會計", hr: "人資",
+  carbon: "碳排放管理", ai: "AI 智能助理與審批",
+};
+const moduleIcons = {
+  dashboard: "營", inventory: "庫", procurement: "採", sales: "銷",
+  finance: "財", hr: "人", carbon: "碳", ai: "AI",
+};
+const canViewRisk = computed(() =>
+  session.value?.capabilities?.includes("risk.overview.read") ?? false,
+);
+const availableModules = computed(() =>
+  [...new Set([...catalog.value.map((item) => item.module),
+    ...(["admin", "warehouse", "sales", "hr"].includes(session.value?.role) ||
+      session.value?.capabilities?.includes("approval.queue.read") ? ["ai"] : [])])]
+    .filter((module) => module !== "risk"),
+);
 
 const hotspots = computed(() => overview.value?.regions ?? []);
 const highestRisk = computed(
@@ -88,6 +114,24 @@ async function refresh() {
   }
 }
 
+async function initializeWorkspace() {
+  try {
+    catalog.value = (await request("/api/data")).resources ?? [];
+    actions.value = (await request("/api/actions")).actions ?? [];
+  } catch (reason) {
+    // The opt-in LAN demo deliberately exposes only the risk overview.
+    if (!canViewRisk.value) throw reason;
+    catalog.value = [];
+    actions.value = [];
+  }
+  if (canViewRisk.value) {
+    activeModule.value = "risk";
+    await refresh();
+  } else {
+    activeModule.value = availableModules.value[0] ?? "";
+  }
+}
+
 async function login() {
   busy.value = true;
   error.value = "";
@@ -100,7 +144,7 @@ async function login() {
       }),
     });
     password.value = "";
-    await refresh();
+    await initializeWorkspace();
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -112,6 +156,9 @@ async function logout() {
   await request("/api/session", { method: "DELETE" }).catch(() => {});
   session.value = null;
   overview.value = null;
+  catalog.value = [];
+  actions.value = [];
+  activeModule.value = "risk";
   activeRegion.value = null;
   regionDetails.value = null;
   detailsRequestId++;
@@ -143,7 +190,7 @@ function formatDate(value) {
 onMounted(async () => {
   try {
     session.value = await request("/api/session");
-    await refresh();
+    await initializeWorkspace();
   } catch {
     session.value = null;
   }
@@ -195,9 +242,15 @@ onMounted(async () => {
       <div class="brand-mark compact">N<span>·</span>R</div>
       <div class="sidebar-divider"></div>
       <span class="side-caption">工作區</span>
-      <div class="side-active">
-        <span class="side-icon">◈</span> 供應鏈風險總覽
-      </div>
+      <button v-if="canViewRisk" type="button" class="side-active side-nav-button"
+        :class="{ inactive: activeModule !== 'risk' }" @click="activeModule = 'risk'">
+        <span class="side-icon">風</span> 供應鏈風險總覽
+      </button>
+      <button v-for="module in availableModules" :key="module" type="button"
+        class="side-active side-nav-button" :class="{ inactive: activeModule !== module }"
+        @click="activeModule = module">
+        <span class="side-icon">{{ moduleIcons[module] || "·" }}</span> {{ moduleLabels[module] || module }}
+      </button>
       <div class="sidebar-bottom">
         <div class="sidebar-person">
           <span class="avatar">{{ session.name?.slice(0, 1) }}</span
@@ -212,11 +265,15 @@ onMounted(async () => {
 
     <main class="workspace">
       <header class="topbar">
-        <span>供應鏈風險中心 <span class="crumb">/ 風險總覽</span></span
+        <span>供應鏈風險中心 <span class="crumb">/ {{ activeModule === 'risk' ? '風險總覽' : (moduleLabels[activeModule] || '資料查詢') }}</span></span
         ><span class="environment-badge"><i></i> 獨立作業版</span>
       </header>
       <div class="workspace-content">
-        <section class="page-heading">
+        <ModuleBrowser v-if="activeModule && activeModule !== 'risk' && catalog.some((item) => item.module === activeModule)"
+          :key="activeModule" :module-key="activeModule" :resources="catalog" :actions="actions" />
+        <AiPanel v-if="activeModule === 'ai' && ['admin', 'warehouse', 'sales', 'hr'].includes(session.role)" mode="chat" />
+        <ApprovalPanel v-if="activeModule === 'ai' && session.capabilities.includes('approval.queue.read')" />
+        <section v-if="activeModule === 'risk'" class="page-heading">
           <div>
             <div class="eyebrow dark">SUPPLY CHAIN OVERVIEW</div>
             <h1>掌握風險，<span>提早應對。</span></h1>
@@ -228,7 +285,7 @@ onMounted(async () => {
         </section>
 
         <p v-if="error" class="alert" role="alert">{{ error }}</p>
-        <template v-if="overview">
+        <template v-if="activeModule === 'risk' && overview">
           <div class="data-time">
             資料查詢時間：{{
               formatDate(overview.generated_at)
@@ -460,8 +517,10 @@ onMounted(async () => {
             </div>
             <p v-else class="empty-text">此{{ activeSupplier ? '供應商' : '據點' }}目前沒有可確認的未結案採購單。</p>
           </section>
+          <ActionPanel module-key="risk" :actions="actions" @saved="refresh" />
+          <AiPanel v-if="canViewRisk && actions.length" mode="what-if" />
           <footer>
-            個人作業展示版 · Vue 前端透過 FastAPI 取得 ERP 資料 · 唯讀檢視
+            個人作業展示版 · Vue 前端透過 FastAPI 取得 ERP 資料
           </footer>
         </template>
       </div>
